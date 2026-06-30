@@ -28,6 +28,7 @@ SPAM_MODEL: SpamModel | None = None
 
 RULE_TYPES = {"exact", "contains", "phrase", "mask", "regex"}
 MODES = {"test", "active", "disabled"}
+TELEGRAM_MESSAGE_LIMIT = 3900
 
 
 def setup(
@@ -181,6 +182,72 @@ def help_text() -> str:
     )
 
 
+def external_guide_text() -> str:
+    return (
+        "<b>Полный гайд подключения</b>\n\n"
+        "<b>1. Оплата</b>\n"
+        "Если бот просит подписку, открой личку с ботом и отправь:\n"
+        "<code>/subscribe</code>\n"
+        "Оплати счёт Crypto Pay, затем проверь оплату:\n"
+        "<code>/check_payment</code>\n"
+        "Статус подписки:\n"
+        "<code>/subscription</code>\n\n"
+        "<b>2. Добавление в группу</b>\n"
+        "Добавь бота в группу или супергруппу. В настройках группы выдай боту права администратора:\n"
+        "удаление сообщений, просмотр сообщений, управление сообщениями.\n"
+        "После этого напиши в группе от своего личного аккаунта:\n"
+        "<code>/connect</code>\n"
+        "Если ты пишешь от имени канала, Telegram не передаёт нормальный user_id. Переключись на личный аккаунт и повтори.\n\n"
+        "<b>3. Добавление в канал</b>\n"
+        "Добавь бота администратором канала с правом удаления сообщений.\n"
+        "Если канал публичный, в личке с ботом отправь:\n"
+        "<code>/connect @channel_username</code>\n"
+        "Для комментариев к каналу отдельно добавь бота в привязанную группу обсуждений и там отправь:\n"
+        "<code>/connect</code>\n\n"
+        "<b>4. Узнать chat_id</b>\n"
+        "После подключения бот покажет ID. Посмотреть ещё раз:\n"
+        "<code>/channels</code>\n\n"
+        "<b>5. Настроить правила</b>\n"
+        "Примеры:\n"
+        "<code>/addword &lt;chat_id&gt; exact казино</code>\n"
+        "<code>/addword &lt;chat_id&gt; contains крипто</code>\n"
+        "<code>/addword &lt;chat_id&gt; phrase быстрый заработок</code>\n"
+        "<code>/addword &lt;chat_id&gt; mask ставк*</code>\n"
+        "Whitelist:\n"
+        "<code>/whitelist add_expr &lt;chat_id&gt; ключевая ставка</code>\n"
+        "<code>/whitelist add_user &lt;chat_id&gt; 123456789</code>\n\n"
+        "<b>6. Включить ML-антиспам</b>\n"
+        "<code>/ml &lt;chat_id&gt; on 0.55</code>\n"
+        "Проверить текст без удаления:\n"
+        "<code>/test &lt;chat_id&gt; казино бонус перейди по ссылке</code>\n\n"
+        "<b>7. Режимы</b>\n"
+        "Безопасный тестовый режим, ничего не удаляет:\n"
+        "<code>/mode &lt;chat_id&gt; test</code>\n"
+        "Боевой режим, удаляет сообщения:\n"
+        "<code>/mode &lt;chat_id&gt; active</code>\n"
+        "Полностью выключить проверку:\n"
+        "<code>/mode &lt;chat_id&gt; disabled</code>\n\n"
+        "<b>8. Проверка</b>\n"
+        "<code>/status</code>\n"
+        "<code>/rules &lt;chat_id&gt;</code>\n"
+        "<code>/logs &lt;chat_id&gt;</code>\n"
+        "<code>/stats &lt;chat_id&gt;</code>\n\n"
+        "<b>Если бот не удаляет</b>\n"
+        "Проверь: бот администратор, есть право удаления, чат подключён, режим active, правило или ML включены, подписка владельца чата активна."
+    )
+
+
+async def answer_long(message: Message, text: str) -> None:
+    chunk = ""
+    for line in text.splitlines(keepends=True):
+        if len(chunk) + len(line) > TELEGRAM_MESSAGE_LIMIT:
+            await message.answer(chunk)
+            chunk = ""
+        chunk += line
+    if chunk:
+        await message.answer(chunk)
+
+
 @router.message(CommandStart())
 async def start(message: Message) -> None:
     await remember_user(message)
@@ -189,7 +256,7 @@ async def start(message: Message) -> None:
 
 @router.message(Command("help"))
 async def help_command(message: Message) -> None:
-    await message.answer(help_text())
+    await answer_long(message, external_guide_text())
 
 
 @router.callback_query(F.data.startswith("menu:"))
@@ -197,12 +264,14 @@ async def menu_callback(callback: CallbackQuery) -> None:
     if callback.message is None:
         await callback.answer()
         return
-    await remember_user(callback.message)
+    db().ensure_user(callback.from_user.id, callback.from_user.full_name, callback.from_user.username)
     section = callback.data.split(":", 1)[1] if callback.data else ""
     uid = callback.from_user.id
 
     if section == "help":
-        text = help_text()
+        await answer_long(callback.message, external_guide_text())
+        await callback.answer()
+        return
     elif section == "channels":
         chats = db().list_chats(uid)
         text = "Чаты не подключены." if not chats else "\n\n".join(format_chat(row) for row in chats[:10])
