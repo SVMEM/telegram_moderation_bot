@@ -1,0 +1,9 @@
+.env
+data/*.sqlite3
+data/*.sqlite3-*
+data/ml/*.zip
+__pycache__/
+.pytest_cache/
+.venv/
+*.pyc
+.DS_Store
