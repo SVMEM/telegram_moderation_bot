@@ -12,8 +12,20 @@ class DatabaseTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             database = Database(Path(tmpdir) / "bot.sqlite3")
             database.init_schema({111}, "test")
+            database.seed_settings(
+                {
+                    "subscription_required": "true",
+                    "subscription_price": "10.00",
+                    "subscription_fiat": "USD",
+                    "subscription_days": "30",
+                }
+            )
 
             self.assertTrue(database.is_owner(111))
+            self.assertTrue(database.get_bool_setting("subscription_required"))
+            self.assertEqual(database.get_setting("subscription_price"), "10.00")
+            database.set_setting("subscription_price", "15.50", 111)
+            self.assertEqual(database.get_setting("subscription_price"), "15.50")
             database.upsert_chat(
                 chat_id=-1001,
                 title="Test chat",

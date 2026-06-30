@@ -106,6 +106,8 @@ async def ensure_access(message: Message, chat_id: int | None = None, owner_only
     if not allowed:
         await message.answer("Нет доступа.")
         return False
+    if owner_only:
+        return True
     if not subscription_ok_for_user(uid):
         await message.answer("Подписка не активна. Команда: /subscribe")
         return False
@@ -113,22 +115,46 @@ async def ensure_access(message: Message, chat_id: int | None = None, owner_only
 
 
 def subscription_ok_for_user(uid: int | None) -> bool:
-    if not config().subscription_required:
+    if not db().get_bool_setting("subscription_required", config().subscription_required):
         return True
     if uid is None:
         return False
-    if config().subscription_bypass_owner and db().is_owner(uid):
+    if db().get_bool_setting("subscription_bypass_owner", config().subscription_bypass_owner) and db().is_owner(uid):
         return True
     return db().subscription_active(uid)
 
 
 def subscription_ok_for_chat(chat) -> bool:
-    if not config().subscription_required:
+    if not db().get_bool_setting("subscription_required", config().subscription_required):
         return True
     owner_id = chat["owner_id"]
-    if owner_id is not None and config().subscription_bypass_owner and db().is_owner(owner_id):
+    if (
+        owner_id is not None
+        and db().get_bool_setting("subscription_bypass_owner", config().subscription_bypass_owner)
+        and db().is_owner(owner_id)
+    ):
         return True
     return db().subscription_active(owner_id)
+
+
+def billing_price() -> str:
+    return db().get_setting("subscription_price", config().subscription_price) or config().subscription_price
+
+
+def billing_fiat() -> str:
+    return (db().get_setting("subscription_fiat", config().subscription_fiat) or config().subscription_fiat).upper()
+
+
+def billing_assets() -> str:
+    return db().get_setting("subscription_accepted_assets", config().subscription_accepted_assets) or config().subscription_accepted_assets
+
+
+def billing_days() -> int:
+    return db().get_int_setting("subscription_days", config().subscription_days)
+
+
+def billing_required() -> bool:
+    return db().get_bool_setting("subscription_required", config().subscription_required)
 
 
 async def is_sender_chat_admin(message: Message, bot: Bot) -> bool:
@@ -176,6 +202,8 @@ def help_text() -> str:
         "/subscription — статус подписки.\n"
         "/subscribe — оплатить месяц криптой.\n"
         "/check_payment [invoice_id] — проверить оплату.\n"
+        "/billing [on|off] — статус или включение подписочного режима владельцем.\n"
+        "/price <amount> [FIAT] — цена месяца, например /price 15 USD.\n"
         "/ml <chat_id> <on|off> [threshold] — ML-антиспам.\n"
         "/grant_admin &lt;user_id&gt; [chat_id] — выдать доступ владельцем.\n"
         "/status — состояние."
@@ -192,6 +220,13 @@ def external_guide_text() -> str:
         "<code>/check_payment</code>\n"
         "Статус подписки:\n"
         "<code>/subscription</code>\n\n"
+        "<b>Для владельца бота</b>\n"
+        "Включить подписочный режим:\n"
+        "<code>/billing on</code>\n"
+        "Выключить подписочный режим:\n"
+        "<code>/billing off</code>\n"
+        "Поменять цену месяца:\n"
+        "<code>/price 15 USD</code>\n\n"
         "<b>2. Добавление в группу</b>\n"
         "Добавь бота в группу или супергруппу. В настройках группы выдай боту права администратора:\n"
         "удаление сообщений, просмотр сообщений, управление сообщениями.\n"
@@ -377,7 +412,8 @@ async def subscription(message: Message) -> None:
         "<b>Подписка</b>",
         f"Статус: <b>{'active' if active else 'inactive'}</b>",
         f"До: <code>{h(valid_until)}</code>",
-        f"Тариф: {h(config().subscription_price)} {h(config().subscription_fiat)} / {config().subscription_days} дней",
+        f"Тариф: {h(billing_price())} {h(billing_fiat())} / {billing_days()} дней",
+        f"Подписка обязательна: {billing_required()}",
     ]
     if latest:
         lines.append(f"Последний invoice: <code>{latest['provider_invoice_id']}</code>, статус: {h(latest['status'])}")
@@ -395,26 +431,29 @@ async def subscribe(message: Message) -> None:
         await message.answer("Оплата не настроена: нужен CRYPTO_PAY_API_TOKEN.")
         return
     try:
-        amount = money_ok(config().subscription_price)
+        amount = money_ok(billing_price())
+        fiat = billing_fiat()
+        days = billing_days()
         invoice = await billing().create_invoice(
             user_id=uid,
             amount=amount,
-            fiat=config().subscription_fiat,
-            accepted_assets=config().subscription_accepted_assets,
+            fiat=fiat,
+            accepted_assets=billing_assets(),
             expires_in=config().subscription_invoice_expires_seconds,
+            days=days,
         )
         db().create_payment(
             user_id=uid,
             provider_invoice_id=invoice.invoice_id,
             amount=amount,
-            fiat=config().subscription_fiat,
+            fiat=fiat,
             invoice_url=invoice.url,
         )
     except (CryptoPayError, ValueError) as exc:
         await message.answer(f"Не удалось создать счёт: <code>{h(exc)}</code>")
         return
     await message.answer(
-        f"Счёт на {h(amount)} {h(config().subscription_fiat)} создан.\n"
+        f"Счёт на {h(amount)} {h(fiat)} создан.\n"
         f"Оплатить: {h(invoice.url)}\n"
         f"После оплаты: /check_payment {invoice.invoice_id}"
     )
@@ -454,11 +493,58 @@ async def check_payment(message: Message) -> None:
     status = str(invoice.get("status"))
     db().update_payment_status(payment_id=payment["id"], status=status, raw_payload=invoice)
     if status == "paid":
-        valid_until = add_days(db().get_subscription_until(uid), config().subscription_days)
+        valid_until = add_days(db().get_subscription_until(uid), billing_days())
         db().activate_subscription(user_id=uid, valid_until=valid_until, payment_id=payment["id"])
         await message.answer(f"Оплата подтверждена. Подписка активна до <code>{h(valid_until)}</code>.")
         return
     await message.answer(f"Статус счёта: <b>{h(status)}</b>.")
+
+
+@router.message(Command("billing"))
+async def billing_command(message: Message) -> None:
+    if not await ensure_access(message, owner_only=True):
+        return
+    args = command_args(message).split()
+    if args:
+        action = args[0].lower()
+        if action not in {"on", "off"}:
+            await message.answer("Формат: /billing, /billing on или /billing off")
+            return
+        db().set_setting("subscription_required", "true" if action == "on" else "false", user_id(message))
+
+    await message.answer(
+        "<b>Billing</b>\n"
+        f"Подписочный режим: <b>{billing_required()}</b>\n"
+        f"Цена месяца: <b>{h(billing_price())} {h(billing_fiat())}</b>\n"
+        f"Дней в подписке: {billing_days()}\n"
+        f"Crypto Pay token: {billing().configured}\n"
+        "Команды:\n"
+        "<code>/billing on</code>\n"
+        "<code>/billing off</code>\n"
+        "<code>/price 15 USD</code>"
+    )
+
+
+@router.message(Command("price"))
+async def price_command(message: Message) -> None:
+    if not await ensure_access(message, owner_only=True):
+        return
+    args = command_args(message).split()
+    if not args:
+        await message.answer(f"Текущая цена: <b>{h(billing_price())} {h(billing_fiat())}</b>")
+        return
+    try:
+        amount = money_ok(args[0])
+    except ValueError as exc:
+        await message.answer(f"Некорректная цена: <code>{h(exc)}</code>")
+        return
+    fiat = args[1].upper() if len(args) > 1 else billing_fiat()
+    if not fiat.isalpha() or len(fiat) < 3 or len(fiat) > 8:
+        await message.answer("Валюта должна выглядеть как USD, EUR, RUB.")
+        return
+    db().set_setting("subscription_price", amount, user_id(message))
+    db().set_setting("subscription_fiat", fiat, user_id(message))
+    await message.answer(f"Цена месяца обновлена: <b>{h(amount)} {h(fiat)}</b>.")
 
 
 @router.message(Command("addword"))
@@ -991,7 +1077,8 @@ def build_status() -> str:
         f"Чатов: {chats}\n"
         f"Правил: {rules_count}\n"
         f"Событий: {events}\n"
-        f"Подписка обязательна: {config().subscription_required}\n"
+        f"Подписка обязательна: {billing_required()}\n"
+        f"Цена месяца: {h(billing_price())} {h(billing_fiat())}\n"
         f"Crypto Pay: {billing().configured if BILLING else False}\n"
         f"ML: {model.ready if model else False}"
         f"{' / ' + h(model.version) if model and model.ready else ''}\n"

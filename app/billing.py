@@ -42,7 +42,16 @@ class CryptoPayClient:
             raise CryptoPayError(str(data.get("error") or data))
         return data["result"]
 
-    async def create_invoice(self, *, user_id: int, amount: str, fiat: str, accepted_assets: str, expires_in: int) -> CreatedInvoice:
+    async def create_invoice(
+        self,
+        *,
+        user_id: int,
+        amount: str,
+        fiat: str,
+        accepted_assets: str,
+        expires_in: int,
+        days: int,
+    ) -> CreatedInvoice:
         result = await self.request(
             "createInvoice",
             {
@@ -50,7 +59,7 @@ class CryptoPayClient:
                 "fiat": fiat,
                 "accepted_assets": accepted_assets,
                 "amount": amount,
-                "description": f"Подписка на Telegram moderation bot на {self.config.subscription_days} дней",
+                "description": f"Подписка на Telegram moderation bot на {days} дней",
                 "payload": f"subscription:{user_id}:{now_iso()}",
                 "allow_comments": False,
                 "allow_anonymous": False,
@@ -104,8 +113,9 @@ async def check_pending_payments(database: Database, client: CryptoPayClient, co
         )
         if status != "paid":
             continue
+        subscription_days = database.get_int_setting("subscription_days", config.subscription_days)
         current_until = database.get_subscription_until(payment["user_id"])
-        valid_until = add_days(current_until, config.subscription_days)
+        valid_until = add_days(current_until, subscription_days)
         database.activate_subscription(
             user_id=payment["user_id"],
             valid_until=valid_until,

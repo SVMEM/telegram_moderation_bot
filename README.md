@@ -56,6 +56,8 @@ docker compose up -d --build
 - `/subscription` — статус подписки.
 - `/subscribe` — создать счёт на месяц через Crypto Pay.
 - `/check_payment [invoice_id]` — проверить оплату.
+- `/billing [on|off]` — включить/выключить обязательную подписку владельцем.
+- `/price <amount> [FIAT]` — изменить цену месяца владельцем.
 - `/ml <chat_id> <on|off> [threshold]` — включить или выключить ML-антиспам для чата.
 - `/grant_admin <user_id> [chat_id]` — выдать права админа владельцем.
 - `/revoke_admin <user_id> [chat_id]` — снять права админа владельцем.
@@ -96,12 +98,16 @@ SUBSCRIPTION_DAYS=30
 Команды:
 
 ```text
+/billing
+/billing on
+/billing off
+/price 15 USD
 /subscription
 /subscribe
 /check_payment <invoice_id>
 ```
 
-Если `SUBSCRIPTION_REQUIRED=true`, команды управления и модерация чатов требуют активную подписку владельца чата. Владельцы из `BOT_OWNER_IDS` обходят оплату, если `SUBSCRIPTION_BYPASS_OWNER=true`.
+Если подписочный режим включён, команды управления и модерация чатов требуют активную подписку владельца чата. Владельцы из `BOT_OWNER_IDS` обходят оплату, если `SUBSCRIPTION_BYPASS_OWNER=true`. Значения из `.env` используются как стартовые, дальше `/billing` и `/price` пишут настройки в SQLite.
 
 ## ML-антиспам
 

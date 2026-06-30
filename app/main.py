@@ -25,6 +25,16 @@ async def main() -> None:
     config = load_config()
     database = Database(config.database_path)
     database.init_schema(config.owner_ids, config.default_mode)
+    database.seed_settings(
+        {
+            "subscription_required": "true" if config.subscription_required else "false",
+            "subscription_bypass_owner": "true" if config.subscription_bypass_owner else "false",
+            "subscription_price": config.subscription_price,
+            "subscription_fiat": config.subscription_fiat,
+            "subscription_accepted_assets": config.subscription_accepted_assets,
+            "subscription_days": str(config.subscription_days),
+        }
+    )
     database.prune_events(config.log_retention_days)
     billing_client = CryptoPayClient(config)
     spam_model = SpamModel(

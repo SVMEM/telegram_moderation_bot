@@ -88,7 +88,7 @@ def load_config() -> Config:
         log_retention_days=retention,
         crypto_pay_api_token=os.getenv("CRYPTO_PAY_API_TOKEN", "").strip(),
         crypto_pay_base_url="https://testnet-pay.crypt.bot/api" if crypto_testnet else "https://pay.crypt.bot/api",
-        subscription_required=_parse_bool(os.getenv("SUBSCRIPTION_REQUIRED", "false"), False),
+        subscription_required=_parse_bool(os.getenv("SUBSCRIPTION_REQUIRED", "true"), True),
         subscription_bypass_owner=_parse_bool(os.getenv("SUBSCRIPTION_BYPASS_OWNER", "true"), True),
         subscription_price=os.getenv("SUBSCRIPTION_PRICE", "10.00").strip(),
         subscription_fiat=os.getenv("SUBSCRIPTION_FIAT", "USD").strip().upper(),

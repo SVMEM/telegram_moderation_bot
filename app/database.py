@@ -126,6 +126,12 @@ class Database:
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS subscriptions (
                 user_id INTEGER PRIMARY KEY,
                 status TEXT NOT NULL DEFAULT 'inactive',
@@ -177,6 +183,58 @@ class Database:
         if any(row["name"] == column for row in rows):
             return
         self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {spec}")
+
+    def seed_settings(self, defaults: dict[str, str]) -> None:
+        for key, value in defaults.items():
+            self.conn.execute(
+                """
+                INSERT INTO app_settings(key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO NOTHING
+                """,
+                (key, value, now_iso()),
+            )
+        self.conn.commit()
+
+    def get_setting(self, key: str, default: str | None = None) -> str | None:
+        row = self.conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else default
+
+    def get_bool_setting(self, key: str, default: bool = False) -> bool:
+        value = self.get_setting(key)
+        if value is None:
+            return default
+        return value.lower() in {"1", "true", "yes", "on"}
+
+    def get_int_setting(self, key: str, default: int) -> int:
+        value = self.get_setting(key)
+        if value is None:
+            return default
+        try:
+            return int(value)
+        except ValueError:
+            return default
+
+    def set_setting(self, key: str, value: str, actor_id: int | None = None) -> None:
+        old_value = self.get_setting(key)
+        self.conn.execute(
+            """
+            INSERT INTO app_settings(key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+            """,
+            (key, value, now_iso()),
+        )
+        self.conn.commit()
+        self.audit(
+            actor_id=actor_id,
+            chat_id=None,
+            entity="setting",
+            entity_id=key,
+            action="set",
+            old_value=old_value,
+            new_value=value,
+        )
 
     def audit(
         self,
