@@ -43,6 +43,9 @@ class Config:
     default_mode: str
     store_message_text: bool
     log_retention_days: int | None
+    telegram_request_timeout: int
+    telegram_polling_timeout: int
+    telegram_proxy: str
     crypto_pay_api_token: str
     crypto_pay_base_url: str
     subscription_required: bool
@@ -86,6 +89,9 @@ def load_config() -> Config:
         default_mode=default_mode,
         store_message_text=_parse_bool(os.getenv("STORE_MESSAGE_TEXT", "true"), True),
         log_retention_days=retention,
+        telegram_request_timeout=int(os.getenv("TELEGRAM_REQUEST_TIMEOUT", "90")),
+        telegram_polling_timeout=int(os.getenv("TELEGRAM_POLLING_TIMEOUT", "20")),
+        telegram_proxy=os.getenv("TELEGRAM_PROXY", "").strip(),
         crypto_pay_api_token=os.getenv("CRYPTO_PAY_API_TOKEN", "").strip(),
         crypto_pay_base_url="https://testnet-pay.crypt.bot/api" if crypto_testnet else "https://pay.crypt.bot/api",
         subscription_required=_parse_bool(os.getenv("SUBSCRIPTION_REQUIRED", "true"), True),

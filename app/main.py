@@ -5,6 +5,7 @@ import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramNetworkError
 
@@ -45,8 +46,13 @@ async def main() -> None:
     )
     setup(database, config, billing_client, spam_model)
 
+    session = AiohttpSession(
+        proxy=config.telegram_proxy or None,
+        timeout=config.telegram_request_timeout,
+    )
     bot = Bot(
         token=config.bot_token,
+        session=session,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dispatcher = Dispatcher()
@@ -56,7 +62,12 @@ async def main() -> None:
     allowed_updates = dispatcher.resolve_used_update_types()
     while True:
         try:
-            await dispatcher.start_polling(bot, allowed_updates=allowed_updates)
+            await dispatcher.start_polling(
+                bot,
+                allowed_updates=allowed_updates,
+                polling_timeout=config.telegram_polling_timeout,
+            )
+            await bot.session.close()
             return
         except (TelegramNetworkError, TimeoutError, OSError) as exc:
             logger.warning("Telegram polling network error, retrying in 15 seconds: %s", exc)

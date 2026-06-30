@@ -12,6 +12,9 @@
    - `BOT_DEFAULT_MODE=test` — безопасный режим без удаления. Для удаления включите `active` командой `/mode`.
    - `CRYPTO_PAY_API_TOKEN` — токен Crypto Pay, если нужна подписка через крипту.
    - `SUBSCRIPTION_REQUIRED=true` — включить обязательную месячную подписку.
+   - `TELEGRAM_REQUEST_TIMEOUT=90` — общий timeout HTTP-запросов к Telegram.
+   - `TELEGRAM_POLLING_TIMEOUT=20` — long polling timeout.
+   - `TELEGRAM_PROXY` — HTTPS/SOCKS proxy, если VPS плохо ходит к Telegram.
 4. Установите зависимости:
 
 ```bash
